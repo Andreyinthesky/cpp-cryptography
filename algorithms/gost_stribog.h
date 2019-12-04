@@ -6,6 +6,7 @@
 #include <vector>
 #include <random>
 #include <ctime>
+#include "../ttmath/ttmathint.h"
 
 using std::cout;
 using std::cin;
@@ -14,7 +15,6 @@ using std::ifstream;
 using std::ofstream;
 using std::vector;
 using std::string;
-
 
 enum HashLength {
 	b256 = 0,
@@ -83,7 +83,43 @@ const vector<uint64_t> C[] = {
 
 
 struct uint512_t {
+private:
 	vector<uint32_t> bits;
+
+	std::pair<uint512_t, uint512_t> division(uint512_t a, uint512_t b) {
+		if (b == 0) throw "divide by zero";
+
+		uint512_t z = 1;
+		uint512_t tempB = b;
+		int k = 0;
+
+		while (a >= b) {
+			b = b << 1;
+
+			if (b < tempB) {
+				b = tempB;
+				break;
+			}
+
+			tempB = b;
+			z = z << 1;
+			k++;
+		}
+
+		uint512_t div = 0;
+
+		while (k > 0) {
+			b = b >> 1;
+			z = z >> 1;
+			k--;
+			if (a >= b) {
+				a = a - b;
+				div = div + z;
+			}
+		}
+
+		return std::make_pair(div, a);
+	}
 
 public:
 	uint512_t() {
@@ -92,26 +128,116 @@ public:
 		}
 	}
 
+	uint512_t(uint32_t number) {
+		bits.push_back(number);
+		for (int i = 0; i < 15; i++) {
+			bits.push_back(0);
+		}
+	}
+
 	uint512_t(vector<uint32_t> bits) {
 		for (int i = 0; i < 16; i++) {
-			this->bits.push_back(bits[i]);
+			this->bits.push_back(0);
+		}
+
+		for (size_t i = 0; i < bits.size() && i < 16; i++) {
+			this->bits[i] = bits[i];
 		}
 	}
 
 	uint512_t(vector<uint64_t> bits) {
-		for (int i = 0; i < 8; i++) {
+		for (int i = 0; i < 16; i++) {
+			this->bits.push_back(0);
+		}
+
+		for (size_t i = 0; i < bits.size() && i < 8; i++) {
 			uint32_t right = bits[i] & 0xffffffff;
 			uint32_t left = bits[i] >> 32;
-			this->bits.push_back(right);
-			this->bits.push_back(left);
+			this->bits[2 * i] = right;
+			this->bits[2 * i + 1] = left;
 		}
 	}
 
-	uint32_t operator [] (int block_index) {
+	size_t size() {
+		return bits.size();
+	}
+
+	bool operator ==(uint32_t number) {
+		for (size_t i = 1; i < bits.size(); i++) {
+			if (bits[i] != 0) return false;
+		}
+
+		return bits[0] == number;
+	}
+
+	bool operator ==(uint512_t other) {
+		for (size_t i = 0; i < bits.size(); i++) {
+			if (other[i] != bits[i]) return false;
+		}
+
+		return true;
+	}
+
+	bool operator <(uint512_t other) {
+		for (int i = bits.size() - 1; i >= 0; i--) {
+			if (bits[i] < other[i]) return true;
+			else if (bits[i] > other[i]) return false;
+		}
+
+		return false;
+	}
+
+	bool operator !=(uint512_t other) {
+		return !(*this == other);
+	}
+
+	bool operator <=(uint512_t other) {
+		return (*this < other || *this == other);
+	}
+
+	bool operator >(uint512_t other) {
+		return !(*this <= other);
+	}
+
+	bool operator >=(uint512_t other) {
+		return !(*this < other);
+	}
+
+	uint512_t operator *(uint512_t other) {
+		uint512_t res = 0;
+
+		for (size_t i = 0; i < bits.size(); i++) {
+			uint32_t carry = 0;
+			for (size_t j = 0; j < other.size() && (i + j) < bits.size(); j++) {
+				uint64_t temp = (uint64_t)((*this)[i]) * other[j] + carry;
+				uint64_t res_temp = temp + res[i + j];
+				carry = (res_temp >> 32);
+				res[i + j] = res_temp & 0xffffffff;
+			}
+		}
+
+		return res;
+	}
+
+	uint512_t operator *(uint32_t n) {
+		uint512_t other = n;
+
+		return (*this) * other;
+	}
+
+	uint512_t operator /(uint512_t other) {
+		return division(*this, other).first;
+	}
+
+	uint512_t operator %(uint512_t other) {
+		return division(*this, other).second;
+	}
+
+	uint32_t& operator [](const int block_index) {
 		return this->bits[block_index];
 	}
 
-	uint512_t operator ^ (uint512_t other) {
+	uint512_t operator ^(uint512_t other) {
 		vector<uint32_t> result;
 
 		for (size_t i = 0; i < bits.size(); i++) {
@@ -121,7 +247,53 @@ public:
 		return uint512_t(result);
 	}
 
-	uint512_t operator + (uint512_t other) {
+	uint512_t operator~() {
+		uint512_t result = 0;
+
+		for (size_t i = 0; i < result.size(); i++) {
+			result[i] = ~(this->bits[i]);
+		}
+
+		return result;
+	}
+
+	uint512_t operator >>(uint32_t n) {
+		uint512_t res;
+
+		if (n > 511) return res;
+
+		int k = n / 32;
+		int l = n % 32;
+
+		uint32_t carry = 0;
+		for (int i = bits.size() - 1; i >= k; i--) {
+			uint64_t temp = ((uint64_t)bits[i]) << (32 - l);
+			res[i - k] = carry + (temp >> 32);
+			carry = temp & 0xffffffff;
+		}
+
+		return res;
+	}
+
+	uint512_t operator <<(uint32_t n) {
+		uint512_t res;
+
+		if (n > 511) return res;
+
+		uint32_t k = n / 32;
+		uint32_t l = n % 32;
+
+		uint32_t carry = 0;
+		for (size_t i = k; i < bits.size(); i++) {
+			uint64_t temp = ((uint64_t)bits[i - k]) << l;
+			res[i] = carry + (temp & 0xffffffff);
+			carry = (temp >> 32);
+		}
+
+		return res;
+	}
+
+	uint512_t operator +(uint512_t other) {
 		vector<uint32_t> result;
 
 		uint64_t temp = 0;
@@ -133,7 +305,7 @@ public:
 		return uint512_t(result);
 	}
 
-	uint512_t operator + (uint64_t number) {
+	uint512_t operator +(uint64_t number) {
 		uint512_t other;
 
 		other.bits[0] = number & 0xffffffff;
@@ -142,7 +314,13 @@ public:
 		return *this + other;
 	}
 
-	operator string() {
+	uint512_t operator -(uint512_t other) {
+		other = (~other) + 1;
+
+		return *this + other;
+	}
+
+	explicit operator string() {
 		char bytes[64];
 
 		for (int i = bits.size() - 1; i >= 0; i--) {
@@ -153,7 +331,24 @@ public:
 
 		return string(bytes);
 	}
+
+	operator ttmath::Int<512>() {
+		ttmath::Int<512> res = 0;
+
+		for (size_t i = 0; i < size(); i++) {
+			res.table[i] = bits[i];
+		}
+
+		return res;
+	}
+
+	static void print(uint512_t n) {
+		for (int i = n.size() - 1; i >= 0; i--)
+			printf("%08x", n[i]);
+		printf("\n");
+	}
 };
+
 
 uint512_t X_map(uint512_t k, uint512_t a);
 uint512_t S_map(uint512_t block);
@@ -163,6 +358,6 @@ uint512_t E_map(uint512_t K, uint512_t m);
 vector<uint512_t> get_keys(uint512_t K);
 uint8_t* complete_msg(uint8_t* msg, uint64_t msg_len_in_bits);
 uint512_t compress(uint512_t N, uint512_t h, uint512_t m);
-uint512_t get_hash(uint8_t* msg, uint64_t msg_len_in_bits);
+uint512_t get_hash(uint8_t* msg, uint64_t msg_len_in_bits, HashLength hash_len = HashLength::b512);
 
 #endif /* ALGORITHMS_GOST_STRIBOG_H_ */

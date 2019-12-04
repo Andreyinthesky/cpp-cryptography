@@ -8,13 +8,13 @@ uint512_t X_map(uint512_t k, uint512_t a) {
 uint512_t S_map(uint512_t block) {
 	uint512_t result;
 
-	for (size_t i = 0; i < block.bits.size(); i++) {
+	for (size_t i = 0; i < block.size(); i++) {
 		uint32_t res_part = 0;
 		for (int j = 0; j < 4; j++) {
 			uint8_t n = (block[i] >> (8 * j)) & 0xff;
 			res_part += ((uint32_t)Pi_stribog[n]) << (8 * j);
 		}
-		result.bits[i] = res_part;
+		result[i] = res_part;
 	}
 
 	return result;
@@ -23,14 +23,14 @@ uint512_t S_map(uint512_t block) {
 uint512_t P_map(uint512_t block) {
 	uint512_t result;
 
-	for (size_t i = 0; i < block.bits.size(); i++) {
+	for (size_t i = 0; i < block.size(); i++) {
 		uint32_t res_part = 0;
 		for (int j = 0; j < 4; j++) {
 			int number = Tau[4 * i + j];
 			uint8_t n = (block[number / 4] >> (8 * (number % 4))) & 0xff;
 			res_part += ((uint32_t)n) << (8 * j);
 		}
-		result.bits[i] = res_part;
+		result[i] = res_part;
 	}
 
 	return result;
@@ -89,6 +89,7 @@ uint512_t compress(uint512_t N, uint512_t h, uint512_t m) {
 	return h ^ t ^ m;
 }
 
+//дополнение: 0^(511-|M|) || 1 || M
 uint8_t* complete_msg(uint8_t* msg, uint64_t msg_len_in_bits)
 {
 	uint8_t* res = (uint8_t*)malloc(64 * sizeof(uint8_t));
@@ -123,7 +124,7 @@ uint512_t take_last_64bytes_from(uint8_t* msg, int last_index) {
 	return result;
 }
 
-uint512_t get_hash(uint8_t* msg, uint64_t msg_len_in_bits) {
+uint512_t get_hash(uint8_t* msg, uint64_t msg_len_in_bits, HashLength hash_len) {
 	uint512_t zero_vector;
 	uint512_t h;
 	uint512_t N;
@@ -141,7 +142,6 @@ uint512_t get_hash(uint8_t* msg, uint64_t msg_len_in_bits) {
 		msg_len_in_bits -= 512;
 	}
 
-	//дополнение: 0^(511-|M|) || 1 || M
 	msg = complete_msg(msg, msg_len_in_bits);
 	m = take_last_64bytes_from(msg, 63);
 
@@ -150,6 +150,13 @@ uint512_t get_hash(uint8_t* msg, uint64_t msg_len_in_bits) {
 	Sigma = Sigma + m;
 	h = compress(zero_vector, h, N);
 	h = compress(zero_vector, h, Sigma);
+
+	if (hash_len == HashLength::b256) {
+		for (size_t i = 8; i < h.size(); i++) {
+			h[i - 8] = h[i];
+			h[i] = 0;
+		}
+	}
 
 	return h;
 }
